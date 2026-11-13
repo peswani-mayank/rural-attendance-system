@@ -309,4 +309,666 @@ Maintains centralized student, teacher, class and attendance information.
 
 ---
 
-## 8. Application
+## 8. Application Workflow
+
+The proposed attendance workflow is:
+
+### Step 1: Teacher Authentication
+
+The teacher logs into the application using authorized credentials.
+
+### Step 2: Class Selection
+
+The teacher selects the class, section and attendance session.
+
+### Step 3: Classroom Photograph
+
+The teacher captures a classroom photograph using the device camera.
+
+### Step 4: AI Processing
+
+The AI system:
+
+- Detects visible faces.
+- Extracts facial embeddings.
+- Compares embeddings with enrolled student profiles.
+- Generates identification suggestions.
+- Flags unmatched faces.
+
+### Step 5: Teacher Verification
+
+The teacher reviews the suggested student identities and confirms or corrects the results.
+
+AI identification alone will not automatically finalize attendance.
+
+### Step 6: Attendance Recording
+
+Confirmed attendance records are stored locally or sent to the backend depending on connectivity.
+
+### Step 7: Offline Storage
+
+When internet connectivity is unavailable, attendance records are stored in IndexedDB.
+
+### Step 8: Synchronization
+
+When connectivity returns, pending records are synchronized with the central database.
+
+### Step 9: Attendance Reports
+
+Administrators can view synchronized attendance information through the admin dashboard.
+
+---
+
+## 9. AI Implementation
+
+AI is one of the major components of this project.
+
+The system will use a face recognition pipeline to assist teachers in identifying students.
+
+### AI Pipeline
+
+**1. Face Detection**
+
+Detect the location of faces in classroom photographs.
+
+Possible technology:
+- MediaPipe Face Detection.
+- ONNX-compatible face detection models.
+
+**2. Face Embedding Extraction**
+
+Convert detected facial images into numerical feature vectors.
+
+Possible models:
+- ArcFace-compatible models.
+- MobileFaceNet.
+
+**3. Face Matching**
+
+Compare the extracted embeddings with previously enrolled student embeddings.
+
+A similarity metric such as cosine similarity can be used.
+
+**4. Confidence and Unknown Detection**
+
+Generate matching scores and flag uncertain or unknown identities for manual review.
+
+**5. Teacher Verification**
+
+The teacher approves or corrects the suggested identities before attendance is finalized.
+
+### Important AI Considerations
+
+- Recognition accuracy must be evaluated using representative classroom test data.
+- Lighting, camera quality and face angles can affect results.
+- Similarity thresholds must be validated rather than selected arbitrarily.
+- Manual attendance must remain available.
+- AI predictions must not independently determine student absence.
+
+AI processing should preferably happen locally on the device where practical, so the application does not depend on internet connectivity for identification.
+
+---
+
+## 10. Offline Functionality
+
+Offline support is one of the most important requirements.
+
+The application will use Progressive Web Application technologies to support essential attendance functionality without continuous internet connectivity.
+
+### Technologies
+
+- Service Worker.
+- Web App Manifest.
+- IndexedDB.
+- Dexie.js.
+- Background synchronization where supported.
+
+### Local Database Structure
+
+```text
+IndexedDB
+|
++-- students
+|
++-- classes
+|
++-- enrollments
+|
++-- attendance
+|
++-- pendingSync
+|
++-- faceProfiles
+|
++-- appSettings
+```
+
+### Offline Workflow
+
+1. Teacher opens the previously installed application.
+2. Essential application resources load from the cache.
+3. Teacher selects an assigned class.
+4. Teacher captures a photograph.
+5. AI processes the photograph locally when supported.
+6. Teacher verifies the identification results.
+7. Attendance is saved in IndexedDB.
+8. A pending synchronization entry is created.
+9. The application detects connectivity restoration.
+10. Pending records are uploaded to the central server.
+11. Successfully synchronized records are marked as synced.
+
+### Synchronization Requirements
+
+- Unique identifiers for attendance records.
+- Duplicate submission prevention.
+- Retry mechanism for failed requests.
+- Server-side validation.
+- Conflict handling.
+- Synchronization logs.
+- Manual Sync Now functionality.
+
+The application must not depend exclusively on browser background-sync support. Synchronization should also be attempted when the application opens, becomes active or regains connectivity.
+
+---
+
+## 11. Database Design
+
+MongoDB will be used as the central database.
+
+The proposed collections are:
+
+| Collection | Description |
+|---|---|
+| Schools | School information |
+| Teachers | Teacher accounts |
+| Students | Student profiles |
+| Classes | Class and section information |
+| Enrollments | Student-class relationships |
+| Attendance | Daily attendance records |
+| Devices | Authorized device information |
+| SyncLogs | Synchronization history |
+
+### Example Student Document
+
+```json
+{
+  "_id": "student_001",
+  "name": "Rahul Sharma",
+  "rollNumber": "101",
+  "schoolId": "school_001",
+  "classId": "class_001",
+  "section": "A",
+  "isActive": true
+}
+```
+
+### Example Attendance Document
+
+```json
+{
+  "_id": "attendance_001",
+  "studentId": "student_001",
+  "schoolId": "school_001",
+  "classId": "class_001",
+  "date": "2026-11-13",
+  "status": "present",
+  "markedBy": "teacher_001",
+  "source": "ai_assisted",
+  "syncStatus": "synced"
+}
+```
+
+These are illustrative data structures. Actual database schemas will be finalized during backend development.
+
+---
+
+## 12. Project Structure
+
+The planned project structure is:
+
+```text
+rural-attendance-system/
+|
++-- app/
+|   |
+|   +-- login/
+|   |
+|   +-- teacher/
+|   |   +-- dashboard/
+|   |   +-- attendance/
+|   |   +-- students/
+|   |   +-- history/
+|   |
+|   +-- admin/
+|   |   +-- dashboard/
+|   |   +-- students/
+|   |   +-- teachers/
+|   |   +-- classes/
+|   |   +-- reports/
+|   |
+|   +-- api/
+|       +-- auth/
+|       +-- students/
+|       +-- teachers/
+|       +-- classes/
+|       +-- attendance/
+|       +-- sync/
+|
++-- components/
+|   +-- ui/
+|   +-- dashboard/
+|   +-- attendance/
+|   +-- camera/
+|   +-- forms/
+|
++-- lib/
+|   +-- mongodb.ts
+|   +-- auth.ts
+|   +-- dexie.ts
+|   +-- sync.ts
+|
++-- models/
+|   +-- Student.ts
+|   +-- Teacher.ts
+|   +-- Class.ts
+|   +-- Attendance.ts
+|
++-- services/
+|   +-- attendance.service.ts
+|   +-- student.service.ts
+|   +-- ai.service.ts
+|
++-- hooks/
+|   +-- useOnlineStatus.ts
+|   +-- useSync.ts
+|
++-- types/
+|
++-- public/
+|   +-- icons/
+|   +-- models/
+|
++-- ai-service/
+|   +-- app.py
+|   +-- models/
+|   +-- requirements.txt
+|   +-- Dockerfile
+|
++-- .env.example
++-- .gitignore
++-- package.json
++-- README.md
++-- docker-compose.yml
+```
+
+This is the intended structure. Directories will be introduced as development progresses.
+
+---
+
+## 13. Installation and Setup
+
+### Prerequisites
+
+Install the following tools:
+
+- Node.js (LTS version recommended).
+- npm.
+- Git.
+- Visual Studio Code.
+- MongoDB Atlas account or local MongoDB installation.
+
+Python and Docker will be required when their respective modules are introduced.
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/peswani-mayank/rural-attendance-system.git
+```
+
+### Step 2: Navigate to the Project
+
+```bash
+cd rural-attendance-system
+```
+
+### Step 3: Install Dependencies
+
+```bash
+npm install
+```
+
+### Step 4: Configure Environment Variables
+
+Create a `.env.local` file in the project root.
+
+Add the required environment variables when the backend is implemented.
+
+### Step 5: Start the Development Server
+
+```bash
+npm run dev
+```
+
+### Step 6: Open the Application
+
+Visit:
+
+```text
+http://localhost:3000
+```
+
+---
+
+## 14. Environment Variables
+
+Create a `.env.local` file.
+
+Example configuration:
+
+```env
+# MongoDB
+MONGODB_URI=your_mongodb_connection_string
+
+# Authentication
+JWT_SECRET=your_long_random_secret
+
+# AI Service
+AI_SERVICE_URL=http://localhost:8000
+```
+
+These are planned configuration variables. Only configure the services that have actually been implemented.
+
+Never commit `.env.local` or real credentials to GitHub.
+
+Use `.env.example` to document the required variable names without exposing secrets.
+
+---
+
+## 15. API Structure
+
+The backend will use Next.js Route Handlers for application APIs.
+
+Proposed API endpoints:
+
+### Authentication
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/api/auth/login` | Teacher/Admin login |
+| POST | `/api/auth/logout` | Logout |
+| GET | `/api/auth/me` | Current user information |
+
+### Students
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/students` | Get students |
+| POST | `/api/students` | Register student |
+| GET | `/api/students/[id]` | Get student details |
+| PUT | `/api/students/[id]` | Update student |
+| DELETE | `/api/students/[id]` | Deactivate/delete student |
+
+### Teachers
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/teachers` | Get teachers |
+| POST | `/api/teachers` | Register teacher |
+| PUT | `/api/teachers/[id]` | Update teacher |
+
+### Classes
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/classes` | Get classes |
+| POST | `/api/classes` | Create class |
+| PUT | `/api/classes/[id]` | Update class |
+
+### Attendance
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/attendance` | Get attendance records |
+| POST | `/api/attendance` | Record attendance |
+| PUT | `/api/attendance/[id]` | Update attendance |
+| GET | `/api/attendance/reports` | Generate reports |
+
+### Synchronization
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/api/sync` | Upload pending records |
+| GET | `/api/sync/status` | Check sync status |
+
+All endpoints are planned and will be implemented incrementally.
+
+---
+
+## 16. Development Roadmap
+
+Development will be divided into the following phases.
+
+### Phase 1: Project Setup and Planning
+
+- Initialize Next.js application.
+- Configure TypeScript and Tailwind CSS.
+- Establish GitHub repository.
+- Plan application architecture.
+- Create project folder structure.
+
+### Phase 2: Frontend Development
+
+- Build authentication interface.
+- Develop teacher dashboard.
+- Develop admin dashboard.
+- Build student management pages.
+- Build class management pages.
+- Create attendance interface.
+
+### Phase 3: Backend Development
+
+- Configure MongoDB.
+- Create database schemas.
+- Implement authentication.
+- Develop student APIs.
+- Develop teacher APIs.
+- Develop class APIs.
+- Implement attendance APIs.
+
+### Phase 4: Camera and Attendance Integration
+
+- Implement camera access.
+- Capture classroom photographs.
+- Display captured images.
+- Build attendance verification interface.
+- Implement manual attendance fallback.
+
+### Phase 5: AI Integration
+
+- Implement face detection.
+- Enroll student face profiles with appropriate authorization.
+- Extract face embeddings.
+- Implement face matching.
+- Generate identification suggestions.
+- Implement unknown-face handling.
+- Integrate teacher verification.
+
+### Phase 6: Offline PWA Development
+
+- Configure web app manifest.
+- Implement Service Worker.
+- Cache essential application resources.
+- Configure IndexedDB.
+- Implement offline attendance.
+- Build pending synchronization queue.
+
+### Phase 7: Synchronization
+
+- Develop synchronization APIs.
+- Implement automatic synchronization attempts.
+- Prevent duplicate records.
+- Handle synchronization failures.
+- Implement retry logic.
+- Maintain sync history.
+
+### Phase 8: Docker and Deployment
+
+- Learn Docker fundamentals.
+- Create Dockerfiles.
+- Configure Docker Compose.
+- Containerize application services.
+- Test the complete application.
+- Deploy the application.
+
+---
+
+## 17. Testing Strategy
+
+The system will require testing across different scenarios.
+
+### Functional Testing
+
+- Authentication.
+- Student registration.
+- Teacher management.
+- Class management.
+- Attendance recording.
+- Attendance reporting.
+
+### AI Testing
+
+- Multiple face detection.
+- Recognition accuracy.
+- Unknown face detection.
+- Different lighting conditions.
+- Different camera angles.
+- Teacher correction workflow.
+
+### Offline Testing
+
+- Open application without internet.
+- Access locally cached resources.
+- Record attendance offline.
+- Verify local data persistence.
+- Restore internet connectivity.
+- Synchronize pending records.
+- Test failed synchronization and retries.
+
+### Security Testing
+
+- Authentication validation.
+- Role-based authorization.
+- API access control.
+- Data encryption.
+- Session security.
+- Protection against duplicate and unauthorized attendance submissions.
+
+---
+
+## 18. Security and Privacy
+
+This application may process photographs and biometric information belonging to schoolchildren. Privacy and security are essential requirements.
+
+The project will follow these principles:
+
+- Obtain appropriate school authorization and parental/guardian consent.
+- Collect only necessary information.
+- Protect student information through access controls.
+- Encrypt sensitive data in transit and at rest.
+- Restrict access to biometric profiles.
+- Avoid unnecessary storage of original classroom photographs.
+- Define biometric data retention and deletion policies.
+- Provide manual attendance alternatives.
+- Never treat an AI prediction as definitive proof of attendance.
+- Maintain audit logs for sensitive operations.
+
+Biometric data must not be exposed in public APIs, logs or GitHub repositories.
+
+The application should be evaluated against applicable data protection and child privacy requirements before real-world deployment.
+
+---
+
+## 19. Future Enhancements
+
+Potential future improvements include:
+
+- Parent attendance notifications.
+- SMS notifications for parents.
+- Multilingual support for regional languages.
+- Advanced attendance analytics.
+- School performance reports.
+- Low-bandwidth image processing.
+- Multiple school support.
+- Additional administrative roles.
+- Improved AI models for low-quality classroom images.
+- Integration with existing school management platforms.
+- Advanced synchronization monitoring.
+
+---
+
+## 20. Contribution Guidelines
+
+Contributions and suggestions are welcome.
+
+To contribute:
+
+1. Fork the repository.
+2. Create a feature branch.
+3. Implement your changes.
+4. Test your implementation.
+5. Commit your changes.
+6. Push your branch.
+7. Open a Pull Request.
+
+Example:
+
+```bash
+git checkout -b feature/your-feature-name
+
+git add .
+
+git commit -m "Add: your feature description"
+
+git push origin feature/your-feature-name
+```
+
+---
+
+## 21. License
+
+This project is currently under development.
+
+A suitable open-source license will be selected before public distribution.
+
+---
+
+## Project Status
+
+**Current Development Stage: Initial Project Setup**
+
+The Next.js application has been initialized, and the project repository has been created on GitHub.
+
+The remaining modules will be implemented progressively.
+
+| Component | Status |
+|---|---|
+| Next.js project setup | Completed |
+| GitHub repository | Created |
+| Frontend dashboard | Planned |
+| Authentication | Planned |
+| Student management | Planned |
+| Attendance management | Planned |
+| MongoDB integration | Planned |
+| Camera integration | Planned |
+| AI face recognition | Planned |
+| Offline PWA | Planned |
+| Automatic synchronization | Planned |
+| Docker integration | Planned |
+
+---
+
+## Repository
+
+GitHub: https://github.com/peswani-mayank/rural-attendance-system
+
+**Built with the goal of making school attendance smarter, more accessible and reliable, even in areas with limited internet connectivity.**
