@@ -946,7 +946,7 @@ A suitable open-source license will be selected before public distribution.
 
 **Current Development Stage: Initial Project Setup**
 
-The Next.js application has been initialized, and the project repository has been created on GitHub.
+The Next.js application has been initialized, & the project repository has been created on GitHub.
 
 The remaining modules will be implemented progressively.
 
