@@ -16,7 +16,7 @@ An offline-first, AI-assisted school attendance management system designed to si
 2. [Problem Statement](#2-problem-statement)
 3. [Project Objectives](#3-project-objectives)
 4. [Proposed Features](#4-proposed-features)
-5. [User Roles](#5-user-roles)
+5. [User Roles](#5-user-roles)a
 6. [Technology Stack](#6-technology-stack)
 7. [System Architecture](#7-system-architecture)
 8. [Application Workflow](#8-application-workflow)
