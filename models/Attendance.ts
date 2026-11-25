@@ -4,6 +4,7 @@ export interface IAttendanceItem {
   studentId: mongoose.Types.ObjectId;
   studentName: string;
   rollNumber: string;
+  photoUrl?: string;
   status: "present" | "absent" | "late";
   confidence?: number;
   verified: boolean;
@@ -31,6 +32,7 @@ const AttendanceItemSchema = new Schema<IAttendanceItem>(
     studentId: { type: Schema.Types.ObjectId, ref: "Student", required: true },
     studentName: { type: String, required: true },
     rollNumber: { type: String, required: true },
+    photoUrl: { type: String },
     status: { type: String, enum: ["present", "absent", "late"], required: true },
     confidence: { type: Number, min: 0, max: 1 },
     verified: { type: Boolean, default: true },

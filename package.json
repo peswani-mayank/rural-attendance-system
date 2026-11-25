@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.6",
+    "@vladmandic/face-api": "^1.7.15",
     "bcryptjs": "^3.0.3",
     "dexie": "^4.4.7",
     "jose": "^6.2.17",

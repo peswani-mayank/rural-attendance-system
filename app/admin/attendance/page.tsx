@@ -263,22 +263,72 @@ export default function AttendanceHistoryPage() {
                 </button>
               </div>
 
+              {/* Summary Metrics Bar */}
+              <div className="grid grid-cols-3 gap-2 py-3 border-b border-border text-center text-xs">
+                <div className="bg-slate-50 p-2 rounded-lg">
+                  <span className="text-muted block">Enrolled Total</span>
+                  <span className="text-sm font-bold text-foreground">
+                    {activeSessionModal.records.length}
+                  </span>
+                </div>
+                <div className="bg-emerald-50 p-2 rounded-lg">
+                  <span className="text-emerald-700 block font-medium">Present</span>
+                  <span className="text-sm font-bold text-emerald-800">
+                    {activeSessionModal.totalPresent}
+                  </span>
+                </div>
+                <div className="bg-red-50 p-2 rounded-lg">
+                  <span className="text-red-700 block font-medium">Absent</span>
+                  <span className="text-sm font-bold text-red-800">
+                    {activeSessionModal.totalAbsent}
+                  </span>
+                </div>
+              </div>
+
               {/* Roster list */}
-              <div className="mt-4 flex-1 overflow-y-auto divide-y divide-border">
+              <div className="mt-3 flex-1 overflow-y-auto divide-y divide-border">
                 {activeSessionModal.records.map((st) => (
-                  <div key={st.studentId} className="py-2.5 flex items-center justify-between">
-                    <div>
-                      <span className="font-mono text-xs font-semibold text-muted mr-2">
-                        #{st.rollNumber}
-                      </span>
-                      <span className="text-sm font-medium text-foreground">
-                        {st.studentName}
-                      </span>
-                      {st.confidence && (
-                        <span className="ml-2 text-[11px] text-emerald-700">
-                          (Match: {Math.round(st.confidence * 100)}%)
-                        </span>
+                  <div key={st.studentId} className="py-2.5 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      {st.photoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={st.photoUrl}
+                          alt={st.studentName}
+                          className="h-9 w-9 rounded-full object-cover border border-emerald-500 shadow-xs"
+                        />
+                      ) : (
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-500 font-bold text-xs border border-border">
+                          {st.studentName.charAt(0)}
+                        </div>
                       )}
+
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs font-bold text-muted bg-slate-100 px-1 py-0.5 rounded">
+                            #{st.rollNumber}
+                          </span>
+                          <span className="text-sm font-semibold text-foreground">
+                            {st.studentName}
+                          </span>
+                        </div>
+
+                        <div className="mt-0.5">
+                          {st.status === "present" && st.confidence && st.confidence > 0 ? (
+                            <span className="text-[11px] text-emerald-700 font-semibold">
+                              ✓ AI Match: {Math.round(st.confidence * 100)}%
+                            </span>
+                          ) : st.status === "present" ? (
+                            <span className="text-[11px] text-primary font-medium">
+                              ✓ Teacher Confirmed
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">
+                              Not Detected (Absent)
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     <span

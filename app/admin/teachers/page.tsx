@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import DashboardHeader from "@/components/DashboardHeader";
 import {
@@ -12,49 +12,11 @@ import {
   X,
   CheckCircle,
 } from "lucide-react";
-
-interface TeacherItem {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  subject: string;
-  assignedClass: string;
-  status: "active" | "on-leave";
-}
-
-const INITIAL_TEACHERS: TeacherItem[] = [
-  {
-    id: "tch-1",
-    name: "Sunita Deshmukh",
-    email: "sunita.d@school.gov.in",
-    phone: "+91 94140 12345",
-    subject: "Mathematics & Science",
-    assignedClass: "Grade 5-A",
-    status: "active",
-  },
-  {
-    id: "tch-2",
-    name: "Rajendra Prasad",
-    email: "rajendra.p@school.gov.in",
-    phone: "+91 94140 23456",
-    subject: "Social Studies & Hindi",
-    assignedClass: "Grade 6-A",
-    status: "active",
-  },
-  {
-    id: "tch-3",
-    name: "Kavita Nair",
-    email: "kavita.n@school.gov.in",
-    phone: "+91 94140 34567",
-    subject: "English & Environmental Studies",
-    assignedClass: "Grade 7-B",
-    status: "active",
-  },
-];
+import { offlineDb, OfflineTeacher } from "@/lib/offlineDb";
+import { initializeOfflineDatabase } from "@/lib/syncService";
 
 export default function TeachersManagementPage() {
-  const [teachers, setTeachers] = useState<TeacherItem[]>(INITIAL_TEACHERS);
+  const [teachers, setTeachers] = useState<OfflineTeacher[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
   // Form State
@@ -64,11 +26,21 @@ export default function TeachersManagementPage() {
   const [subject, setSubject] = useState<string>("");
   const [assignedClass, setAssignedClass] = useState<string>("Grade 5-A");
 
-  function handleAddTeacher(e: React.FormEvent) {
+  async function loadTeachers() {
+    await initializeOfflineDatabase();
+    const data = await offlineDb.teachers.toArray();
+    setTeachers(data);
+  }
+
+  useEffect(() => {
+    loadTeachers();
+  }, []);
+
+  async function handleAddTeacher(e: React.FormEvent) {
     e.preventDefault();
     if (!name || !email) return;
 
-    const newTeacher: TeacherItem = {
+    const newTeacher: OfflineTeacher = {
       id: `tch-${Date.now()}`,
       name,
       email,
@@ -78,12 +50,13 @@ export default function TeachersManagementPage() {
       status: "active",
     };
 
-    setTeachers([newTeacher, ...teachers]);
+    await offlineDb.teachers.add(newTeacher);
     setName("");
     setEmail("");
     setPhone("");
     setSubject("");
     setIsAddModalOpen(false);
+    await loadTeachers();
   }
 
   return (

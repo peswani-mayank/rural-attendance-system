@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import { LanguageProvider } from "@/lib/languageContext";
+import { AuthProvider } from "@/lib/authContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,8 +49,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        <ServiceWorkerRegister />
-        {children}
+        <LanguageProvider>
+          <AuthProvider>
+            <ServiceWorkerRegister />
+            {children}
+          </AuthProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

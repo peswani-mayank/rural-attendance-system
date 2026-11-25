@@ -10,7 +10,7 @@ import {
   Upload,
   Sparkles,
   CheckCircle,
-  XCircle,
+  CheckCircle2,
   AlertTriangle,
   ArrowLeft,
   RefreshCw,
@@ -19,8 +19,12 @@ import {
   Check,
   X,
   Clock,
+  Calendar,
   SwitchCamera,
   VideoOff,
+  UserCheck,
+  UserX,
+  HelpCircle,
 } from "lucide-react";
 import {
   offlineDb,
@@ -30,9 +34,18 @@ import {
   OfflineAttendanceRecord,
 } from "@/lib/offlineDb";
 import { initializeOfflineDatabase, syncPendingAttendance } from "@/lib/syncService";
+import {
+  matchClassroomFaces,
+  loadFaceRecognitionModels,
+  FaceMatchResult,
+} from "@/lib/faceRecognition";
+import { useAuth } from "@/lib/authContext";
+import { useLanguage } from "@/lib/languageContext";
 
 export default function AttendanceCapturePage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const { language, t } = useLanguage();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -40,6 +53,10 @@ export default function AttendanceCapturePage() {
   const [classes, setClasses] = useState<OfflineClass[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState<string>("");
+  const [maxDate, setMaxDate] = useState<string>("");
+  const [enrolledStudents, setEnrolledStudents] = useState<OfflineStudent[]>([]);
+  const [existingSession, setExistingSession] = useState<OfflineAttendanceRecord | null>(null);
+  const [dateStatus, setDateStatus] = useState<"today" | "recorded" | "unrecorded_past" | "future">("today");
 
   // Camera / Media State
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -51,8 +68,10 @@ export default function AttendanceCapturePage() {
   // AI & Verification State
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisComplete, setAnalysisComplete] = useState<boolean>(false);
+  const [matchedFaceBoxes, setMatchedFaceBoxes] = useState<FaceMatchResult[]>([]);
   const [studentsList, setStudentsList] = useState<AttendanceStudentItem[]>([]);
   const [unknownFacesCount, setUnknownFacesCount] = useState<number>(0);
+  const [totalFacesDetected, setTotalFacesDetected] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
@@ -68,16 +87,36 @@ export default function AttendanceCapturePage() {
     }
   }, [mediaStream, isCameraActive]);
 
-  // Load classes from offline db on mount
+  // Load classes & initial class roster on mount
   useEffect(() => {
-    setSelectedDate(new Date().toISOString().split("T")[0]);
-
     async function loadInitialData() {
       await initializeOfflineDatabase();
+      const today = new Date().toISOString().split("T")[0];
+      setSelectedDate(today);
+      setMaxDate(today);
+      loadFaceRecognitionModels().catch(console.warn);
+
       const loadedClasses = await offlineDb.classes.toArray();
       setClasses(loadedClasses);
+
       if (loadedClasses.length > 0) {
-        setSelectedClassId(loadedClasses[0].id);
+        const urlClassId =
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search).get("classId")
+            : null;
+        const urlClass = urlClassId
+          ? loadedClasses.find((c) => c.id === urlClassId)
+          : null;
+        const matchingClass = user?.assignedClass
+          ? loadedClasses.find((c) => c.name === user.assignedClass)
+          : null;
+        const initialClassId = urlClass
+          ? urlClass.id
+          : matchingClass
+          ? matchingClass.id
+          : loadedClasses[0].id;
+        setSelectedClassId(initialClassId);
+        await loadAttendanceForClassAndDate(initialClassId, today);
       }
     }
     loadInitialData();
@@ -86,6 +125,114 @@ export default function AttendanceCapturePage() {
       stopCamera();
     };
   }, []);
+
+  // Load attendance and student roster specifically for the chosen class and date
+  async function loadAttendanceForClassAndDate(classId: string, date: string) {
+    if (!classId) return;
+
+    // 1. Load enrolled students for this class
+    const students = await offlineDb.students
+      .where("classId")
+      .equals(classId)
+      .toArray();
+    setEnrolledStudents(students);
+
+    const todayStr = new Date().toISOString().split("T")[0];
+
+    // 2. Prevent/flag future date attendance
+    if (date > todayStr) {
+      setDateStatus("future");
+      setExistingSession(null);
+      setCapturedPhoto(null);
+      setMatchedFaceBoxes([]);
+      setAnalysisComplete(false);
+      setStudentsList(
+        students.map((s) => ({
+          studentId: s.id,
+          studentName: s.name,
+          rollNumber: s.rollNumber,
+          photoUrl: s.facePhotoUrl,
+          status: "absent",
+          confidence: 0,
+          verified: false,
+        }))
+      );
+      return;
+    }
+
+    // 3. Query existing attendance record for this exact date and class
+    const existing = await offlineDb.attendanceQueue
+      .where("date")
+      .equals(date)
+      .toArray()
+      .then((list) => list.find((s) => s.classId === classId));
+
+    if (existing) {
+      // Existing record found for this date
+      setDateStatus("recorded");
+      setExistingSession(existing);
+      setCapturedPhoto(existing.photoDataUrl || null);
+      setMatchedFaceBoxes([]);
+      setAnalysisComplete(true);
+
+      const recordedMap = new Map<string, AttendanceStudentItem>();
+      existing.records.forEach((r) => recordedMap.set(r.studentId, r));
+
+      const roster: AttendanceStudentItem[] = students.map((s) => {
+        const rec = recordedMap.get(s.id);
+        if (rec) {
+          return {
+            ...rec,
+            photoUrl: s.facePhotoUrl || rec.photoUrl,
+          };
+        }
+        return {
+          studentId: s.id,
+          studentName: s.name,
+          rollNumber: s.rollNumber,
+          photoUrl: s.facePhotoUrl,
+          status: "absent",
+          confidence: 0,
+          verified: true,
+        };
+      });
+
+      setStudentsList(roster);
+    } else {
+      // No existing record for this date
+      setDateStatus(date === todayStr ? "today" : "unrecorded_past");
+      setExistingSession(null);
+      setCapturedPhoto(null);
+      setMatchedFaceBoxes([]);
+      setAnalysisComplete(false);
+
+      const initialRoster: AttendanceStudentItem[] = students.map((s) => ({
+        studentId: s.id,
+        studentName: s.name,
+        rollNumber: s.rollNumber,
+        photoUrl: s.facePhotoUrl,
+        status: "absent",
+        confidence: 0,
+        verified: true,
+      }));
+
+      setStudentsList(initialRoster);
+    }
+  }
+
+  // Handle Class Selector Change
+  async function handleClassChange(newClassId: string) {
+    setSelectedClassId(newClassId);
+    stopCamera();
+    await loadAttendanceForClassAndDate(newClassId, selectedDate);
+  }
+
+  // Handle Date Selector Change
+  async function handleDateChange(newDate: string) {
+    setSelectedDate(newDate);
+    stopCamera();
+    await loadAttendanceForClassAndDate(selectedClassId, newDate);
+  }
 
   // Start live device camera with fallback
   async function startCamera(overrideMode?: "user" | "environment") {
@@ -148,7 +295,7 @@ export default function AttendanceCapturePage() {
   }
 
   // Capture snapshot from video
-  function captureSnapshot() {
+  async function captureSnapshot() {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -160,7 +307,7 @@ export default function AttendanceCapturePage() {
       const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
       setCapturedPhoto(dataUrl);
       stopCamera();
-      runAIIdentification(dataUrl);
+      await runFaceRecognition(canvas);
     }
   }
 
@@ -174,53 +321,55 @@ export default function AttendanceCapturePage() {
       const result = event.target?.result as string;
       setCapturedPhoto(result);
       stopCamera();
-      runAIIdentification(result);
+
+      const img = new Image();
+      img.onload = () => {
+        runFaceRecognition(img);
+      };
+      img.src = result;
     };
     reader.readAsDataURL(file);
   }
 
-  // Simulate AI face detection & student identification
-  async function runAIIdentification(photoData: string) {
+  // Real Enrollment-Based Face Recognition & Student Matching
+  async function runFaceRecognition(source: HTMLCanvasElement | HTMLImageElement) {
     setIsAnalyzing(true);
     setAnalysisComplete(false);
 
     try {
-      // Load enrolled students for this class from IndexedDB
-      const enrolledStudents = await offlineDb.students
+      // 1. Fetch current enrolled students of the selected class
+      const currentStudents = await offlineDb.students
         .where("classId")
         .equals(selectedClassId)
         .toArray();
 
-      // Simulate AI inference delay (multi-face feature extraction and matching)
-      await new Promise((r) => setTimeout(r, 1400));
+      setEnrolledStudents(currentStudents);
 
-      // Generate realistic AI detection suggestions:
-      // Most students detected present with high confidence, 1-2 absent, and chance of unknown face
-      const verifiedList: AttendanceStudentItem[] = enrolledStudents.map((st, idx) => {
-        // Deterministic simulation based on index:
-        const isAbsent = idx === 2 || idx === 7;
-        const confidence = isAbsent
-          ? 0.12
-          : parseFloat((0.85 + (idx % 12) * 0.012).toFixed(2));
+      // 2. Perform Real Multi-Face Recognition comparing against enrolled reference embeddings
+      const {
+        matchedDetections,
+        attendanceRoster,
+        totalFacesDetected: totalFaces,
+        unknownFacesCount: unknownCount,
+      } = await matchClassroomFaces(source, currentStudents, 0.55);
 
-        return {
-          studentId: st.id,
-          studentName: st.name,
-          rollNumber: st.rollNumber,
-          status: isAbsent ? "absent" : "present",
-          confidence: confidence,
-          faceBox: {
-            x: 50 + (idx % 4) * 120,
-            y: 40 + Math.floor(idx / 4) * 110,
-            width: 80,
-            height: 95,
-          },
-          verified: true,
-        };
-      });
+      setMatchedFaceBoxes(matchedDetections);
+      setTotalFacesDetected(totalFaces);
+      setUnknownFacesCount(unknownCount);
 
-      setStudentsList(verifiedList);
-      setUnknownFacesCount(1);
+      // 3. Update attendance roster
+      const updatedList: AttendanceStudentItem[] = attendanceRoster.map((item) => ({
+        studentId: item.studentId,
+        studentName: item.studentName,
+        rollNumber: item.rollNumber,
+        photoUrl: item.photoUrl,
+        status: item.status,
+        confidence: item.confidence,
+        faceBox: item.matchedBox,
+        verified: true,
+      }));
+
+      setStudentsList(updatedList);
       setAnalysisComplete(true);
     } catch (err) {
       console.error("AI identification error:", err);
@@ -238,15 +387,24 @@ export default function AttendanceCapturePage() {
     );
   }
 
-  // Save attendance locally to Dexie and sync if online
+  // Save or update attendance locally to Dexie and sync if online
   async function handleSubmitAttendance() {
     if (studentsList.length === 0) return;
+    if (dateStatus === "future") {
+      setFeedbackMessage(
+        language === "hi"
+          ? "भविष्य की तारीख की उपस्थिति दर्ज नहीं की जा सकती।"
+          : "Cannot record attendance for a future date."
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     const currentClass = classes.find((c) => c.id === selectedClassId);
     const totalPresent = studentsList.filter((s) => s.status === "present").length;
     const totalAbsent = studentsList.filter((s) => s.status === "absent").length;
-    const sessionId = `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const sessionId = existingSession?.sessionId || `att-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     const newSession: OfflineAttendanceRecord = {
       sessionId,
@@ -254,26 +412,46 @@ export default function AttendanceCapturePage() {
       className: currentClass?.name || "Class",
       section: currentClass?.section || "A",
       date: selectedDate,
-      photoDataUrl: capturedPhoto || undefined,
+      photoDataUrl: capturedPhoto || existingSession?.photoDataUrl || undefined,
       records: studentsList,
       totalPresent,
       totalAbsent,
-      takenBy: "Teacher (Class In-Charge)",
+      takenBy: user
+        ? `${user.name} (${user.role === "admin" ? "Principal" : "Faculty"})`
+        : (existingSession?.takenBy || "Teacher (Class In-Charge)"),
       synced: false,
-      createdAt: Date.now(),
+      createdAt: existingSession?.createdAt || Date.now(),
     };
 
     try {
-      // 1. Always save locally to IndexedDB first
-      await offlineDb.attendanceQueue.add(newSession);
+      // 1. Update existing record if it already exists for this date, or insert new
+      if (existingSession && existingSession.id) {
+        await offlineDb.attendanceQueue.update(existingSession.id, {
+          records: studentsList,
+          totalPresent,
+          totalAbsent,
+          photoDataUrl: capturedPhoto || existingSession.photoDataUrl,
+          takenBy: newSession.takenBy,
+          synced: false,
+        });
+      } else {
+        await offlineDb.attendanceQueue.add(newSession);
+      }
 
       // 2. If online, attempt immediate sync
       if (navigator.onLine) {
         setFeedbackMessage("Saving and synchronizing with central server...");
         await syncPendingAttendance();
       } else {
-        setFeedbackMessage("Saved offline! Will automatically sync when connection returns.");
+        setFeedbackMessage(
+          language === "hi"
+            ? `${selectedDate} की उपस्थिति ऑफ़लाइन सुरक्षित हो गई!`
+            : `Attendance for ${selectedDate} saved offline!`
+        );
       }
+
+      // 3. Reload state for this date
+      await loadAttendanceForClassAndDate(selectedClassId, selectedDate);
 
       setTimeout(() => {
         router.push("/admin/attendance");
@@ -289,6 +467,10 @@ export default function AttendanceCapturePage() {
   const presentCount = studentsList.filter((s) => s.status === "present").length;
   const absentCount = studentsList.filter((s) => s.status === "absent").length;
   const lateCount = studentsList.filter((s) => s.status === "late").length;
+  const enrolledCount = enrolledStudents.length;
+  const enrolledWithFaces = enrolledStudents.filter(
+    (s) => s.faceEmbedding && s.faceEmbedding.length === 128
+  ).length;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -308,10 +490,10 @@ export default function AttendanceCapturePage() {
             </Link>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <Camera className="text-primary" size={26} />
-              AI Classroom Attendance Capture
+              AI Face Recognition Classroom Attendance
             </h1>
             <p className="text-sm text-muted">
-              Capture or upload a classroom photo. AI detects enrolled faces, and the teacher verifies the final count.
+              Select class and capture classroom photo. AI detects individual faces and matches exclusively against enrolled student profiles.
             </p>
           </div>
         </div>
@@ -320,16 +502,11 @@ export default function AttendanceCapturePage() {
         <div className="mb-6 grid grid-cols-1 gap-4 rounded-xl border border-border bg-surface p-4 sm:grid-cols-3">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-1.5">
-              Select Class
+              Select Class & Section *
             </label>
             <select
               value={selectedClassId}
-              onChange={(e) => {
-                setSelectedClassId(e.target.value);
-                setCapturedPhoto(null);
-                setAnalysisComplete(false);
-                setStudentsList([]);
-              }}
+              onChange={(e) => handleClassChange(e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-hidden"
             >
               {classes.map((cls) => (
@@ -346,21 +523,105 @@ export default function AttendanceCapturePage() {
             </label>
             <input
               type="date"
+              max={maxDate || undefined}
               value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              onChange={(e) => handleDateChange(e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-hidden"
             />
           </div>
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted mb-1.5">
-              Operation Mode
+              Enrolled Face Profiles
             </label>
-            <div className="flex items-center h-10 px-3 rounded-lg bg-light-green/60 text-xs font-semibold text-primary">
-              <ShieldCheck size={16} className="mr-1.5 text-secondary" />
-              Offline-Ready (IndexedDB Protected)
+            <div className="flex items-center justify-between h-10 px-3 rounded-lg bg-light-green/60 text-xs font-semibold text-primary">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck size={16} className="text-secondary" />
+                {enrolledWithFaces} of {enrolledCount} Faces Enrolled
+              </span>
+              {enrolledWithFaces < enrolledCount && (
+                <Link
+                  href="/admin/students"
+                  className="text-[11px] underline text-primary hover:text-emerald-800"
+                >
+                  Enroll Missing
+                </Link>
+              )}
             </div>
           </div>
+        </div>
+
+        {/* Dynamic Day-Wise Status Notification Banner */}
+        <div className="mb-6">
+          {dateStatus === "future" && (
+            <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-xs text-red-900 shadow-2xs">
+              <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-sm block">
+                  {language === "hi" ? "भविष्य की तारीख चुनी गई है" : "Future Date Selected"} ({selectedDate})
+                </span>
+                <p className="mt-0.5 text-red-800">
+                  {language === "hi"
+                    ? "उपस्थिति अग्रिम में दर्ज नहीं की जा सकती। कृपया आज की या किसी पिछली तारीख का चयन करें।"
+                    : "Attendance cannot be marked in advance for future dates. Please select today or a past date."}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {dateStatus === "recorded" && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50/80 p-4 text-xs text-emerald-950 shadow-2xs">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 size={18} className="text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-sm block text-emerald-900">
+                    {language === "hi"
+                      ? `दिनांक ${selectedDate} की उपस्थिति पहले से दर्ज है`
+                      : `Attendance Already Recorded for ${selectedDate}`}
+                  </span>
+                  <p className="mt-0.5 text-emerald-800">
+                    {existingSession?.takenBy ? `Recorded by: ${existingSession.takenBy}` : "Verified session"} •{" "}
+                    <span className="font-semibold text-emerald-900">{existingSession?.totalPresent} Present</span>,{" "}
+                    <span className="font-semibold text-red-800">{existingSession?.totalAbsent} Absent</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center rounded-full bg-emerald-200/80 px-2.5 py-1 text-[11px] font-bold text-emerald-900">
+                  {language === "hi" ? "सहेजा गया रिकॉर्ड" : "Viewing Saved Record"}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {dateStatus === "unrecorded_past" && (
+            <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900 shadow-2xs">
+              <Calendar size={18} className="text-amber-600 shrink-0" />
+              <div>
+                <span className="font-bold block">
+                  {language === "hi"
+                    ? `दिनांक ${selectedDate} को कोई उपस्थिति दर्ज नहीं की गई थी`
+                    : `No Attendance Recorded on ${selectedDate}`}
+                </span>
+                <span className="text-amber-800">
+                  {language === "hi"
+                    ? "आप तस्वीर खींचकर या सूची सत्यापित करके पिछली छूटी हुई उपस्थिति दर्ज कर सकते हैं।"
+                    : "You can capture a photo or mark the roster below to record missed attendance for this past date."}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {dateStatus === "today" && (
+            <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-light-green/40 p-3 text-xs text-primary shadow-2xs">
+              <Calendar size={17} className="text-primary shrink-0" />
+              <span>
+                {language === "hi"
+                  ? `आज का उपस्थिति सत्र (${selectedDate}) — कक्षा की तस्वीर लें या विद्यार्थियों की उपस्थिति सत्यापित करें।`
+                  : `Today's Attendance Session (${selectedDate}) — Capture classroom photo or verify student roster below.`}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Main Grid: Photo Capture Left / AI Verification Right */}
@@ -369,13 +630,13 @@ export default function AttendanceCapturePage() {
           <div className="lg:col-span-5 flex flex-col gap-4">
             <div className="rounded-xl border border-border bg-surface p-5 shadow-xs">
               <h2 className="text-base font-bold text-foreground mb-3 flex items-center justify-between">
-                <span>Classroom Image</span>
+                <span>Classroom Snapshot</span>
                 {capturedPhoto && (
                   <button
                     onClick={() => {
                       setCapturedPhoto(null);
                       setAnalysisComplete(false);
-                      setStudentsList([]);
+                      setMatchedFaceBoxes([]);
                       stopCamera();
                     }}
                     className="text-xs font-medium text-danger hover:underline cursor-pointer"
@@ -387,7 +648,7 @@ export default function AttendanceCapturePage() {
 
               {/* Viewport Box */}
               <div className="relative aspect-4/3 w-full overflow-hidden rounded-lg border border-dashed border-border bg-slate-900 flex items-center justify-center">
-                {/* Live Video Element - always mounted in DOM so videoRef.current is never null */}
+                {/* Live Video Element */}
                 <video
                   ref={videoRef}
                   autoPlay
@@ -414,38 +675,40 @@ export default function AttendanceCapturePage() {
                       className="h-full w-full object-contain"
                     />
 
-                    {/* AI Bounding Boxes Overlay */}
+                    {/* Real AI Multi-Face Bounding Boxes Overlay */}
                     {analysisComplete &&
-                      studentsList.map((st, i) => (
-                        <div
-                          key={st.studentId}
-                          style={{
-                            top: `${20 + (i % 3) * 25}%`,
-                            left: `${15 + (i % 4) * 20}%`,
-                            width: "16%",
-                            height: "22%",
-                          }}
-                          className={`absolute rounded border-2 ${
-                            st.status === "present"
-                              ? "border-emerald-500 bg-emerald-500/20"
-                              : "border-red-500 bg-red-500/20"
-                          } pointer-events-none flex items-start justify-start p-0.5`}
-                        >
-                          <span className="rounded bg-black/75 px-1 text-[9px] font-semibold text-white truncate max-w-full">
-                            {st.studentName.split(" ")[0]} ({Math.round((st.confidence || 0.9) * 100)}%)
-                          </span>
-                        </div>
-                      ))}
+                      matchedFaceBoxes.map((face, i) => {
+                        return (
+                          <div
+                            key={i}
+                            style={{
+                              top: `${face.box.y}%`,
+                              left: `${face.box.x}%`,
+                              width: `${face.box.width}%`,
+                              height: `${face.box.height}%`,
+                            }}
+                            className={`absolute rounded border-2 ${
+                              face.isUnknown
+                                ? "border-amber-400 bg-amber-400/20"
+                                : "border-emerald-500 bg-emerald-500/25"
+                            } pointer-events-none flex items-start justify-start p-1 shadow-md`}
+                          >
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-bold text-white truncate max-w-full shadow-xs ${
+                                face.isUnknown ? "bg-amber-600/90" : "bg-emerald-900/90"
+                              }`}
+                            >
+                              {face.isUnknown
+                                ? "Unknown / Unenrolled"
+                                : `${face.matchedStudentName} (${Math.round(face.confidence * 100)}%)`}
+                            </span>
+                          </div>
+                        );
+                      })}
 
-                    {/* Unknown face overlay tag */}
-                    {analysisComplete && unknownFacesCount > 0 && (
-                      <div
-                        style={{ top: "60%", left: "75%", width: "16%", height: "20%" }}
-                        className="absolute rounded border-2 border-amber-400 bg-amber-400/20 pointer-events-none p-0.5"
-                      >
-                        <span className="rounded bg-black/80 px-1 text-[9px] font-bold text-amber-300">
-                          Unenrolled
-                        </span>
+                    {analysisComplete && totalFacesDetected === 0 && (
+                      <div className="absolute inset-x-4 bottom-4 rounded-lg bg-black/85 p-3 text-center text-xs text-amber-300 backdrop-blur-xs border border-amber-500/30">
+                        ⚠️ No human faces detected in this image. All students marked absent.
                       </div>
                     )}
                   </div>
@@ -454,18 +717,18 @@ export default function AttendanceCapturePage() {
                     <Camera size={44} className="mx-auto mb-2 opacity-60" />
                     <p className="text-sm font-medium">No Image Selected</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      Start your camera or upload a photo to identify students.
+                      Start your camera or upload a photo to identify enrolled students.
                     </p>
                   </div>
                 )}
 
                 {/* AI Analyzing Spinner Overlay */}
                 {isAnalyzing && (
-                  <div className="absolute inset-0 bg-black/70 backdrop-blur-xs flex flex-col items-center justify-center text-white">
+                  <div className="absolute inset-0 bg-black/75 backdrop-blur-xs flex flex-col items-center justify-center text-white">
                     <Sparkles className="animate-spin text-emerald-400 mb-2" size={32} />
-                    <p className="text-sm font-semibold">AI Analyzing Faces...</p>
+                    <p className="text-sm font-semibold">AI Face Recognition in Progress...</p>
                     <p className="text-xs text-slate-300 mt-1">
-                      Matching facial features with enrolled students
+                      Extracting 128-D face embeddings & matching with enrolled students
                     </p>
                   </div>
                 )}
@@ -545,26 +808,46 @@ export default function AttendanceCapturePage() {
                     Teacher Verification Roster
                   </h2>
                   <p className="text-xs text-muted">
-                    Review and override AI suggestions before saving records.
+                    Verified match against enrolled students of this class. Teacher can review and override.
                   </p>
                 </div>
 
                 {analysisComplete && (
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <span className="rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 font-bold border border-slate-200">
+                      {totalFacesDetected} {totalFacesDetected === 1 ? "Face Detected" : "Faces Detected"}
+                    </span>
                     <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 font-bold">
                       {presentCount} Present
                     </span>
                     <span className="rounded-full bg-red-100 text-red-800 px-2.5 py-0.5 font-bold">
                       {absentCount} Absent
                     </span>
-                    {lateCount > 0 && (
+                    {unknownFacesCount > 0 && (
                       <span className="rounded-full bg-amber-100 text-amber-800 px-2.5 py-0.5 font-bold">
-                        {lateCount} Late
+                        {unknownFacesCount} Unknown
                       </span>
                     )}
                   </div>
                 )}
               </div>
+
+              {/* Status Notice if faces detected vs enrolled */}
+              {analysisComplete && enrolledWithFaces === 0 && (
+                <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
+                  <HelpCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">No enrolled reference face profiles for this class!</span>
+                    <p className="mt-0.5">
+                      To enable AI face recognition, please visit the{" "}
+                      <Link href="/admin/students" className="underline font-bold text-primary">
+                        Student Directory
+                      </Link>{" "}
+                      and enroll photos for your students.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Roster List Body */}
               <div className="mt-3 flex-1 overflow-y-auto max-h-[460px] divide-y divide-border">
@@ -574,26 +857,46 @@ export default function AttendanceCapturePage() {
                       key={st.studentId}
                       className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/70 px-2 rounded-lg transition"
                     >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-muted bg-slate-100 px-1.5 py-0.5 rounded">
-                            #{st.rollNumber}
-                          </span>
-                          <h4 className="text-sm font-semibold text-foreground truncate">
-                            {st.studentName}
-                          </h4>
-                        </div>
+                      <div className="flex items-center gap-3 min-w-0">
+                        {/* Student Enrolled Photo */}
+                        {st.photoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={st.photoUrl}
+                            alt={st.studentName}
+                            className="h-10 w-10 rounded-full object-cover border-2 border-emerald-500 shrink-0 shadow-xs"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500 font-bold text-xs shrink-0 border border-border">
+                            {st.studentName.charAt(0)}
+                          </div>
+                        )}
 
-                        <div className="flex items-center gap-2 mt-1">
-                          {st.confidence && st.confidence > 0.5 ? (
-                            <span className="text-[11px] text-emerald-700 flex items-center gap-1 font-medium">
-                              <Sparkles size={11} /> AI Match: {Math.round(st.confidence * 100)}%
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-bold text-muted bg-slate-100 px-1.5 py-0.5 rounded">
+                              #{st.rollNumber}
                             </span>
-                          ) : (
-                            <span className="text-[11px] text-slate-500">
-                              Manual Check Required
-                            </span>
-                          )}
+                            <h4 className="text-sm font-semibold text-foreground truncate">
+                              {st.studentName}
+                            </h4>
+                          </div>
+
+                          <div className="flex items-center gap-2 mt-1">
+                            {st.status === "present" && st.confidence && st.confidence > 0 ? (
+                              <span className="text-[11px] text-emerald-700 flex items-center gap-1 font-semibold">
+                                <Sparkles size={11} /> Face Match: {Math.round(st.confidence * 100)}%
+                              </span>
+                            ) : st.status === "present" ? (
+                              <span className="text-[11px] text-primary flex items-center gap-1 font-medium">
+                                <CheckCircle size={11} /> Teacher Verified
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">
+                                Not detected in image
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -640,9 +943,9 @@ export default function AttendanceCapturePage() {
                 ) : (
                   <div className="py-16 text-center text-muted">
                     <Users size={38} className="mx-auto mb-2 opacity-40 text-primary" />
-                    <p className="text-sm font-medium">No Students Loaded for Verification</p>
+                    <p className="text-sm font-medium">No Students in this Class</p>
                     <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                      Capture or upload a classroom photo on the left. The AI engine will populate the enrolled student attendance list for your confirmation.
+                      Please enroll students into this class first from the Student Directory.
                     </p>
                   </div>
                 )}
@@ -655,24 +958,47 @@ export default function AttendanceCapturePage() {
                     {feedbackMessage ? (
                       <span className="font-semibold text-primary">{feedbackMessage}</span>
                     ) : (
-                      <span>All overrides will be recorded with your teacher credential.</span>
+                      <span>
+                        Summary: {presentCount} Present, {absentCount} Absent
+                      </span>
                     )}
                   </div>
 
                   <button
                     onClick={handleSubmitAttendance}
-                    disabled={isSubmitting}
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 transition shadow-xs disabled:opacity-50 cursor-pointer"
+                    disabled={isSubmitting || dateStatus === "future"}
+                    className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg px-6 py-2.5 text-sm font-bold text-white transition shadow-xs ${
+                      dateStatus === "future"
+                        ? "bg-slate-400 cursor-not-allowed opacity-60"
+                        : dateStatus === "recorded"
+                        ? "bg-emerald-700 hover:bg-emerald-800 cursor-pointer"
+                        : "bg-primary hover:bg-emerald-800 cursor-pointer"
+                    } disabled:opacity-50`}
                   >
                     {isSubmitting ? (
                       <>
                         <RefreshCw size={16} className="animate-spin" />
                         <span>Saving Record...</span>
                       </>
+                    ) : dateStatus === "future" ? (
+                      <span>
+                        {language === "hi"
+                          ? "भविष्य की तारीख में दर्ज नहीं कर सकते"
+                          : "Cannot Record for Future Date"}
+                      </span>
+                    ) : dateStatus === "recorded" ? (
+                      <>
+                        <CheckCircle size={16} />
+                        <span>
+                          {language === "hi"
+                            ? `उपस्थिति अपडेट करें (${selectedDate})`
+                            : `Update Attendance (${selectedDate})`}
+                        </span>
+                      </>
                     ) : (
                       <>
                         <CheckCircle size={16} />
-                        <span>Confirm & Record Attendance</span>
+                        <span>{t.confirmAttendance}</span>
                       </>
                     )}
                   </button>
@@ -685,4 +1011,3 @@ export default function AttendanceCapturePage() {
     </div>
   );
 }
-

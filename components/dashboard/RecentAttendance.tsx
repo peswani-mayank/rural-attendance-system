@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Camera, CheckCircle2, Clock, Users, ArrowRight } from "lucide-react";
+import { Camera, Clock, ArrowRight } from "lucide-react";
 import { offlineDb, OfflineAttendanceRecord } from "@/lib/offlineDb";
+import { useLanguage } from "@/lib/languageContext";
 
 export default function RecentAttendance() {
+  const { language, t } = useLanguage();
   const [recentRecords, setRecentRecords] = useState<OfflineAttendanceRecord[]>([]);
 
   useEffect(() => {
@@ -30,19 +32,21 @@ export default function RecentAttendance() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-bold text-foreground">
-              Recent Attendance
+              {t.recentAttendance}
             </h2>
             <p className="text-xs text-muted">
-              Latest classroom sessions recorded
+              {language === "hi"
+                ? "दर्ज किए गए नवीनतम कक्षा सत्र"
+                : "Latest classroom sessions recorded"}
             </p>
           </div>
 
           <Link
             href="/admin/attendance/capture"
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 transition-colors"
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 transition-colors shadow-xs"
           >
             <Camera size={14} />
-            <span>Mark with AI</span>
+            <span>{t.markWithAI}</span>
           </Link>
         </div>
 
@@ -52,22 +56,24 @@ export default function RecentAttendance() {
               <div key={item.sessionId || idx} className="py-3 flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-semibold text-foreground">
-                    {item.className} (Sec {item.section})
+                    {item.className} ({language === "hi" ? "वर्ग" : "Sec"} {item.section})
                   </h4>
                   <p className="text-xs text-muted flex items-center gap-2 mt-0.5">
                     <span>{item.date}</span>
                     <span>•</span>
-                    <span>By: {item.takenBy}</span>
+                    <span>
+                      {language === "hi" ? "द्वारा" : "By"}: {item.takenBy}
+                    </span>
                   </p>
                 </div>
 
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <p className="text-xs font-medium text-emerald-700">
-                      {item.totalPresent} Present
+                    <p className="text-xs font-semibold text-emerald-700">
+                      {item.totalPresent} {t.present}
                     </p>
-                    <p className="text-[11px] text-red-600">
-                      {item.totalAbsent} Absent
+                    <p className="text-[11px] font-medium text-red-600">
+                      {item.totalAbsent} {t.absent}
                     </p>
                   </div>
 
@@ -78,7 +84,9 @@ export default function RecentAttendance() {
                         : "bg-amber-100 text-amber-800"
                     }`}
                   >
-                    {item.synced ? "Synced" : "Offline"}
+                    {item.synced
+                      ? (language === "hi" ? "सिंक हुआ" : "Synced")
+                      : (language === "hi" ? "ऑफ़लाइन" : "Offline")}
                   </span>
                 </div>
               </div>
@@ -90,17 +98,21 @@ export default function RecentAttendance() {
               <Camera size={22} />
             </div>
             <h4 className="text-sm font-medium text-foreground">
-              No Attendance Sessions Yet Today
+              {language === "hi"
+                ? "आज कोई उपस्थिति सत्र दर्ज नहीं हुआ"
+                : "No Attendance Sessions Yet Today"}
             </h4>
             <p className="text-xs text-muted mt-1 max-w-xs mx-auto">
-              Start by capturing a classroom photo or selecting a class to test AI-assisted attendance.
+              {language === "hi"
+                ? "एआई-सत्यापित उपस्थिति लेने के लिए कक्षा की तस्वीर खींचें या अपलोड करें।"
+                : "Start by capturing a classroom photo or selecting a class to test AI-assisted attendance."}
             </p>
             <Link
               href="/admin/attendance/capture"
-              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800 transition-colors"
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800 transition-colors shadow-xs"
             >
               <Camera size={14} />
-              <span>Capture Classroom Photo</span>
+              <span>{t.markWithAI}</span>
             </Link>
           </div>
         )}
@@ -109,13 +121,15 @@ export default function RecentAttendance() {
       <div className="pt-4 border-t border-border mt-4 flex items-center justify-between text-xs text-muted">
         <span className="flex items-center gap-1">
           <Clock size={13} />
-          Auto-saved locally via IndexedDB
+          {language === "hi"
+            ? "IndexedDB में स्वतः सुरक्षित"
+            : "Auto-saved locally via IndexedDB"}
         </span>
         <Link
           href="/admin/attendance"
           className="text-primary hover:underline font-medium flex items-center gap-1"
         >
-          View All History <ArrowRight size={12} />
+          {language === "hi" ? "सम्पूर्ण इतिहास देखें" : "View All History"} <ArrowRight size={12} />
         </Link>
       </div>
     </div>

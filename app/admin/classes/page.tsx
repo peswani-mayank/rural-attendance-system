@@ -16,8 +16,13 @@ import Link from "next/link";
 import { offlineDb, OfflineClass } from "@/lib/offlineDb";
 import { initializeOfflineDatabase } from "@/lib/syncService";
 
+interface ClassWithStats extends OfflineClass {
+  realStudentCount: number;
+  teacherName?: string;
+}
+
 export default function ClassesManagementPage() {
-  const [classes, setClasses] = useState<OfflineClass[]>([]);
+  const [classes, setClasses] = useState<ClassWithStats[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
 
   // Form State
@@ -27,8 +32,29 @@ export default function ClassesManagementPage() {
 
   async function loadClasses() {
     await initializeOfflineDatabase();
-    const data = await offlineDb.classes.toArray();
-    setClasses(data);
+    const [loadedClasses, loadedStudents, loadedTeachers] = await Promise.all([
+      offlineDb.classes.toArray(),
+      offlineDb.students.toArray(),
+      offlineDb.teachers.toArray(),
+    ]);
+
+    const classesWithStats: ClassWithStats[] = await Promise.all(
+      loadedClasses.map(async (cls) => {
+        const realStudentCount = loadedStudents.filter((s) => s.classId === cls.id).length;
+        if (cls.studentCount !== realStudentCount) {
+          await offlineDb.classes.update(cls.id, { studentCount: realStudentCount });
+        }
+        const assignedTeacher = loadedTeachers.find((t) => t.assignedClass === cls.name);
+        return {
+          ...cls,
+          studentCount: realStudentCount,
+          realStudentCount,
+          teacherName: assignedTeacher?.name,
+        };
+      })
+    );
+
+    setClasses(classesWithStats);
   }
 
   useEffect(() => {
@@ -109,24 +135,24 @@ export default function ClassesManagementPage() {
                 <div className="mt-4 flex items-center gap-4 text-xs">
                   <div className="flex items-center gap-1.5 text-muted">
                     <Users size={14} className="text-primary" />
-                    <span>{cls.studentCount || 0} Students</span>
+                    <span>{cls.realStudentCount} Students</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-muted">
                     <GraduationCap size={14} className="text-emerald-600" />
-                    <span>Class Teacher Assigned</span>
+                    <span>{cls.teacherName || "No Teacher Assigned"}</span>
                   </div>
                 </div>
               </div>
 
               <div className="mt-5 pt-3 border-t border-border flex items-center justify-between text-xs">
                 <Link
-                  href={`/admin/attendance/capture`}
+                  href={`/admin/attendance/capture?classId=${encodeURIComponent(cls.id)}`}
                   className="font-semibold text-primary hover:underline flex items-center gap-1"
                 >
                   Take Attendance <ChevronRight size={13} />
                 </Link>
                 <Link
-                  href="/admin/students"
+                  href={`/admin/students?classId=${encodeURIComponent(cls.id)}`}
                   className="text-muted hover:text-foreground"
                 >
                   View Students

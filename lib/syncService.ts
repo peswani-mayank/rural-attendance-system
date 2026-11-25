@@ -1,9 +1,51 @@
-import { offlineDb, OfflineAttendanceRecord, OfflineClass, OfflineStudent } from "./offlineDb";
+import {
+  offlineDb,
+  OfflineAttendanceRecord,
+  OfflineClass,
+  OfflineStudent,
+  OfflineTeacher,
+} from "./offlineDb";
+
+export const INITIAL_DEMO_TEACHERS: OfflineTeacher[] = [
+  {
+    id: "tch-1",
+    name: "Sunita Deshmukh",
+    email: "sunita.d@school.gov.in",
+    phone: "+91 94140 12345",
+    subject: "Mathematics & Science",
+    assignedClass: "Grade 5-A",
+    status: "active",
+    passwordHash: "$2b$08$TpugIiJQBK4ZGpwaM02//u0zLpDqzM2iSAvbEfMBoQ6pGWnumg4oG",
+    pin: "1234",
+  },
+  {
+    id: "tch-2",
+    name: "Rajendra Prasad",
+    email: "rajendra.p@school.gov.in",
+    phone: "+91 94140 23456",
+    subject: "Social Studies & Hindi",
+    assignedClass: "Grade 6-A",
+    status: "active",
+    passwordHash: "$2b$08$TpugIiJQBK4ZGpwaM02//u0zLpDqzM2iSAvbEfMBoQ6pGWnumg4oG",
+    pin: "1234",
+  },
+  {
+    id: "tch-3",
+    name: "Kavita Nair",
+    email: "kavita.n@school.gov.in",
+    phone: "+91 94140 34567",
+    subject: "English & Environmental Studies",
+    assignedClass: "Grade 7-B",
+    status: "active",
+    passwordHash: "$2b$08$TpugIiJQBK4ZGpwaM02//u0zLpDqzM2iSAvbEfMBoQ6pGWnumg4oG",
+    pin: "1234",
+  },
+];
 
 export const INITIAL_DEMO_CLASSES: OfflineClass[] = [
   { id: "cls-1", name: "Grade 5-A", grade: "5", section: "A", studentCount: 12 },
-  { id: "cls-2", name: "Grade 6-A", grade: "6", section: "A", studentCount: 10 },
-  { id: "cls-3", name: "Grade 7-B", grade: "7", section: "B", studentCount: 14 },
+  { id: "cls-2", name: "Grade 6-A", grade: "6", section: "A", studentCount: 0 },
+  { id: "cls-3", name: "Grade 7-B", grade: "7", section: "B", studentCount: 0 },
 ];
 
 export const INITIAL_DEMO_STUDENTS: OfflineStudent[] = [
@@ -33,7 +75,29 @@ export async function initializeOfflineDatabase() {
     if (classCount === 0) {
       await offlineDb.classes.bulkPut(INITIAL_DEMO_CLASSES);
       await offlineDb.students.bulkPut(INITIAL_DEMO_STUDENTS);
-      console.log("[OfflineDB] Seeded initial classes and students successfully.");
+      await offlineDb.teachers.bulkPut(INITIAL_DEMO_TEACHERS);
+      console.log("[OfflineDB] Seeded initial classes, students, and teachers successfully.");
+    } else {
+      const teacherCount = await offlineDb.teachers.count();
+      if (teacherCount === 0) {
+        await offlineDb.teachers.bulkPut(INITIAL_DEMO_TEACHERS);
+      }
+    }
+
+    // Seed default admin account if not already initialized
+    const userCount = await offlineDb.users.count();
+    if (userCount === 0) {
+      await offlineDb.users.put({
+        id: "usr-admin-1",
+        name: "Principal (Administrator)",
+        email: "admin@school.gov.in",
+        role: "admin",
+        passwordHash: "$2b$08$dddPFNoqCnPy84wIMy9w5.jlsNW0zeBE3VxpAxPRcyUfambOu/5Gm",
+        phone: "+91 94140 99999",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      console.log("[OfflineDB] Seeded initial administrator account.");
     }
   } catch (error) {
     console.error("[OfflineDB] Failed to initialize offline cache:", error);

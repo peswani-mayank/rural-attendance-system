@@ -11,16 +11,66 @@ import {
   Trash2,
   Save,
   CheckCircle2,
+  KeyRound,
+  ShieldCheck,
+  AlertCircle,
 } from "lucide-react";
 import { offlineDb } from "@/lib/offlineDb";
+import { useAuth } from "@/lib/authContext";
+import { useLanguage } from "@/lib/languageContext";
 
 export default function SettingsPage() {
+  const { user, role, setAdminPassword, setTeacherPassword } = useAuth();
+  const { language, t } = useLanguage();
+
   const [schoolName, setSchoolName] = useState("Government Upper Primary School, Rampura");
   const [udiseCode, setUdiseCode] = useState("08120401201");
   const [district, setDistrict] = useState("Jaipur");
   const [state, setState] = useState("Rajasthan");
   const [aiConfidenceThreshold, setAiConfidenceThreshold] = useState("80");
   const [savedNotice, setSavedNotice] = useState(false);
+
+  // Security Form State
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordNotice, setPasswordNotice] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+
+  async function handlePasswordUpdate(e: React.FormEvent) {
+    e.preventDefault();
+    setPasswordNotice("");
+    setPasswordError("");
+
+    if (!newPassword || newPassword.trim().length < 4) {
+      setPasswordError(
+        language === "hi"
+          ? "पासवर्ड कम से कम 4 अक्षरों का होना चाहिए"
+          : "Password must be at least 4 characters long"
+      );
+      return;
+    }
+
+    if (newPassword.trim() !== confirmPassword.trim()) {
+      setPasswordError(t.passwordsDoNotMatch);
+      return;
+    }
+
+    let res: { success: boolean; error?: string };
+    if (role === "teacher" && user) {
+      res = await setTeacherPassword(user.id, newPassword);
+    } else {
+      res = await setAdminPassword(user?.email || "admin@school.gov.in", newPassword, user?.name);
+    }
+
+    if (res.success) {
+      setPasswordNotice(t.passwordSetSuccess);
+      setNewPassword("");
+      setConfirmPassword("");
+      setTimeout(() => setPasswordNotice(""), 3500);
+    } else {
+      setPasswordError(res.error || "Failed to update password");
+    }
+  }
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -149,6 +199,79 @@ export default function SettingsPage() {
                   Strictly Enabled (AI recommends, Teacher verifies)
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Account Security & Password Management */}
+          <div className="rounded-xl border border-border bg-surface p-6 shadow-xs">
+            <h2 className="text-base font-bold text-foreground flex items-center gap-2 mb-4">
+              <KeyRound className="text-primary" size={18} />
+              {language === "hi" ? "खाता सुरक्षा एवं पासवर्ड प्रबंधन" : "Account Security & Password Management"}
+            </h2>
+
+            {user && (
+              <div className="mb-4 rounded-lg bg-light-green/50 p-3 text-xs flex flex-wrap items-center justify-between gap-2 border border-primary/20">
+                <div>
+                  <span className="text-muted block">{language === "hi" ? "लॉग इन खाता" : "Current Session"}</span>
+                  <span className="font-bold text-foreground text-sm">{user.name} ({user.email})</span>
+                </div>
+                <span className="rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-white">
+                  {role === "admin" ? (language === "hi" ? "प्रशासक" : "Administrator") : (language === "hi" ? "शिक्षक" : "Teacher")}
+                </span>
+              </div>
+            )}
+
+            {passwordNotice && (
+              <div className="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-xs text-green-800">
+                <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+                <span>{passwordNotice}</span>
+              </div>
+            )}
+
+            {passwordError && (
+              <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                <AlertCircle size={16} className="text-red-600 shrink-0" />
+                <span>{passwordError}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 max-w-xl">
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  {t.newPassword}
+                </label>
+                <input
+                  type="password"
+                  placeholder={language === "hi" ? "नया पासवर्ड या 4-अंकीय पिन" : "New password or 4-digit PIN"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-white px-3.5 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  {t.confirmPassword}
+                </label>
+                <input
+                  type="password"
+                  placeholder={t.confirmPassword}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-white px-3.5 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={handlePasswordUpdate}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800 transition cursor-pointer"
+              >
+                <KeyRound size={14} />
+                <span>{language === "hi" ? "नया पासवर्ड सहेजें" : "Update Password"}</span>
+              </button>
             </div>
           </div>
 
